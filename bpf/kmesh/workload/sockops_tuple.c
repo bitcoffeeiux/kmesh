@@ -212,6 +212,10 @@ int record_tuple(struct bpf_sock_ops *skops)
             clean_dstinfo_map(skops);
         }
         break;
+    case BPF_SOCK_OPS_TCP_RECVMSG_CB:
+        if (bpf_sock_owner_by_me(skops))
+            return -EAGAIN;
+        break;
     default:
         break;
     }
