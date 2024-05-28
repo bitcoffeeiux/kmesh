@@ -185,8 +185,10 @@ int record_tuple(struct bpf_sock_ops *skops)
     case BPF_SOCK_OPS_TCP_CONNECT_CB:
         if (skops_conn_from_cni_sim_add(skops))
             record_ip(skops->local_ip4);
-        if (skops_conn_from_cni_sim_delete(skops))
+        else if (skops_conn_from_cni_sim_delete(skops))
             remove_ip(skops->local_ip4);
+        else
+            bpf_migration_socket(skops);
         break;
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         if (!is_managed_by_kmesh(skops->local_ip4)) // local ip4 is client ip
