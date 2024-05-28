@@ -121,7 +121,7 @@ static inline void auth_ip_tuple(struct bpf_sock_ops *skops)
     bpf_ringbuf_submit(msg, 0);
 }
 
-static inline void enable_encoding_metadata(struct bpf_sock_ops *skops)
+static inline void enable_sendmsg_handle(struct bpf_sock_ops *skops)
 {
     int err;
     struct bpf_sock_tuple tuple_info = {0};
@@ -187,15 +187,17 @@ int record_tuple(struct bpf_sock_ops *skops)
             record_ip(skops->local_ip4);
         else if (skops_conn_from_cni_sim_delete(skops))
             remove_ip(skops->local_ip4);
-        else
+        else if (!is_managed_by_kmesh(skops->local_ip4)) {
             bpf_migration_socket(skops);
+            enable_sendmsg_handle(skops);
+        }
         break;
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         if (!is_managed_by_kmesh(skops->local_ip4)) // local ip4 is client ip
             break;
         if (bpf_sock_ops_cb_flags_set(skops, BPF_SOCK_OPS_STATE_CB_FLAG) != 0)
             BPF_LOG(ERR, SOCKOPS, "set sockops cb failed!\n");
-        enable_encoding_metadata(skops);
+        enable_sendmsg_handle(skops);
         break;
     case BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB:
         if (!is_managed_by_kmesh(skops->local_ip4)) // local ip4 is server ip
