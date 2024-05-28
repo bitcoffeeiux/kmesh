@@ -69,5 +69,12 @@ int cgroup_connect4_prog(struct bpf_sock_addr *ctx)
     return CGROUP_SOCK_OK;
 }
 
+SEC("cgroup/post_accept4")
+int cgroup_accept4_prog(struct bpf_sock_addr *ctx)
+{
+    bpf_migration_socket(ctx);
+    return CGROUP_SOCK_OK;
+}
+
 char _license[] SEC("license") = "GPL";
 int _version SEC("version") = 1;
