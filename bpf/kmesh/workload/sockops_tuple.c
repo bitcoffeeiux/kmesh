@@ -213,9 +213,12 @@ int record_tuple(struct bpf_sock_ops *skops)
         }
         break;
     case BPF_SOCK_OPS_TCP_RECVMSG_CB:
-        if (bpf_sock_owner_by_me(skops))
-            return -EAGAIN;
+        if (bpf_sock_own_by_me(skops)) {
+            skops->reply = -EAGAIN;
+            return 0;
+        }
         break;
+        
     default:
         break;
     }

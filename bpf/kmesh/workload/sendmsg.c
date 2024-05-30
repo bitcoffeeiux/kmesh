@@ -162,7 +162,7 @@ static inline void encode_metadata(struct sk_msg_md *msg, enum TLV_TYPE type, __
 SEC("sk_msg")
 int sendmsg(struct sk_msg_md *msg)
 {
-    if (!bpf_sock_owner_by_me(msg))
+    if (!bpf_sock_own_by_me(msg))
         return SK_RETRY;
     encode_metadata(msg, TLV_DST_INFO, 0);
     return SK_PASS;

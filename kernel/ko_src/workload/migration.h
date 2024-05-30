@@ -5,5 +5,5 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation
  */
-int __init migration_sock_init(void);
-void __exit migration_socket_exit(void);
+int migration_sock_init(void);
+void migration_socket_exit(void);

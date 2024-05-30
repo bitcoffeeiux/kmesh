@@ -8,6 +8,7 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+#include "migration.h"
 
 static int __init kmesh_workload_init(void)
 {

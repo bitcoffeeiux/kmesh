@@ -6,6 +6,9 @@
  * published by the Free Software Foundation
  */
 
+#include <linux/net.h>
+#include <linux/file.h>
+#include <net/sock.h>
 #include "migration.h"
 
 typedef long (*migration_socket_func)(struct socket* sock);
@@ -30,11 +33,12 @@ static long _migration_socket(struct socket* sock)
     sock->sk->ex_task = current;
     sock->sk->current_task = NULL;
     // todo transfer(fd);
+    return
 }
 
 static long _sock_owner_by_me(struct sock* sock)
 {
-    return (sock->current == current);
+    return (sock->current_task == current);
 }
 
 int __init migration_sock_init(void)
