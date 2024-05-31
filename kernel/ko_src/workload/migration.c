@@ -11,15 +11,22 @@
 #include <net/sock.h>
 #include "migration.h"
 
-typedef long (*migration_socket_func)(struct socket* sock);
+struct info {
+    int sock_fd;
+    int role;
+};
+
+int send_sockfd(info *inf);
+
+typedef long (*migration_socket_func)(struct socket* sock, int role);
 extern migration_socket_func migration_socket;
 
-typedef long (*sock_owner_by_me_func)(struct sock* sock);
+typedef long (*sock_owner_by_me_func)(struct sock* sock, int role);
 extern sock_owner_by_me_func sock_owner_by_me;
 
-static long _migration_socket(struct socket* sock)
+static long _migration_socket(struct socket* sock, int role)
 {
-    int fd;
+    struct info inf = {0};
     int flags = SOCK_STREAM & ~SOCK_TYPE_MASK;
     if (!sock) {
         pr_err("sock is null point!\n");
@@ -28,11 +35,12 @@ static long _migration_socket(struct socket* sock)
     if (SOCK_NONBLOCK != O_NONBLOCK && (flags & SOCK_NONBLOCK))
         flags = (flags & ~SOCK_NONBLOCK) | O_NONBLOCK;
     flags &= (O_CLOEXEC | O_NONBLOCK);
-    fd = get_unused_fd_flags(flags);
-    fd_install(fd, sock->file);
+    inf.sock_fd = get_unused_fd_flags(flags);
+    fd_install(inf.sock_fd, sock->file);
+    inf.role = role;
     sock->sk->ex_task = current;
     sock->sk->current_task = NULL;
-    // todo transfer(fd);
+    send_sockfd(&info);
     return
 }
 
