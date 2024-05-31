@@ -12,13 +12,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-
- * Author: kwb0523
- * Create: 2024-01-20
  */
 
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
+#include "bpf_helper_defs_workload_ext.h"
 #include "workload_common.h"
 
 SEC("cgroup/post_accept4")

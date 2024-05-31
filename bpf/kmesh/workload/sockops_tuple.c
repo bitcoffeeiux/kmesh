@@ -18,6 +18,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 #include <stdbool.h>
+#include "bpf_helper_defs_workload_ext.h"
 #include "bpf_log.h"
 #include "workload.h"
 #include "config.h"
@@ -218,7 +219,7 @@ int record_tuple(struct bpf_sock_ops *skops)
             return 0;
         }
         break;
-        
+
     default:
         break;
     }

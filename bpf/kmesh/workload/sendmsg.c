@@ -17,6 +17,7 @@
 #include <linux/bpf.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
+#include "bpf_helper_defs_workload_ext.h"
 #include "bpf_log.h"
 #include "encoder.h"
 
