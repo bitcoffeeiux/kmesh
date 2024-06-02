@@ -9,16 +9,17 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include "migration.h"
+#include "workload_helper.h"
 
 static int __init kmesh_workload_init(void)
 {
-    migration_sock_init();
+    workload_helper_ext_init();
     return 0;
 }
 
 static void __exit kmesh_workload_exit(void)
 {
-    migration_socket_exit();
+    workload_helper_ext_exit();
 }
 
 module_init(kmesh_workload_init);

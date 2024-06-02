@@ -5,10 +5,5 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation
  */
-
-#include "migration.h"
-
-int send_sockfd(info *inf)
-{
-    return 0;
-}
+int workload_helper_ext_init(void);
+void workload_helper_ext_exit(void);

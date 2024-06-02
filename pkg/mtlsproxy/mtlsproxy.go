@@ -37,7 +37,7 @@ func NewProxy() *mtlsproxy {
 
 func (proxy *mtlsproxy) Start() error {
 	log.Debug("mtls proxy start...")
-	netlink_sock := NewNetlinkSock()
+	sockpair := NewNetlinkSock()
 
 	proxy.worker.Run()
 	go func() {

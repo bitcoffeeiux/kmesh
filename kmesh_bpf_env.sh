@@ -39,4 +39,4 @@ for name in ${helper_name[@]}; do
 done
 
 cp $ROOT_DIR/depends/include/bpf_helper_defs_ext.h $ROOT_DIR/bpf/include/
-cp $ROOT_DIR/depends/include/bpf_helper_workload_defs_ext.h $ROOT_DIR/bpf/include/
+cp $ROOT_DIR/depends/include/bpf_helper_defs_workload_ext.h $ROOT_DIR/bpf/include/
