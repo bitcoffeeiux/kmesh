@@ -22,7 +22,7 @@
 SEC("cgroup/post_accept4")
 int cgroup_accept4_prog(struct bpf_sock_addr *ctx)
 {
-    bpf_migration_socket(ctx);
+    bpf_migration_socket(ctx, 0);
     return CGROUP_SOCK_OK;
 }
 

@@ -6,7 +6,7 @@
 #
 
 obj-m := kmesh_workload.o
-kmesh_workload-objs = workload_main.o migration.o
+kmesh_workload-objs = workload_main.o migration.o workload_helper.o
 
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

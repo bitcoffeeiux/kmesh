@@ -35,7 +35,7 @@ func NewProxy() *mtlsproxy {
 	}
 }
 
-func (proxy *mtlsproxy) Start() error {
+func (proxy *mtlsproxy) Start() {
 	log.Debug("mtls proxy start...")
 	sockpair := NewNetlinkSock()
 
@@ -56,7 +56,6 @@ func (proxy *mtlsproxy) Start() error {
 			}
 		}
 	}()
-	return nil
 }
 
 func (proxy *mtlsproxy) Stop() {

@@ -17,10 +17,15 @@
 package utils
 
 import (
+	"strconv"
+
 	"github.com/mdlayher/netlink"
 )
 
-const userDefine netlink.HeaderType = 5
+const (
+	userDefine netlink.HeaderType = 5
+	netlinkNum                    = 30
+)
 
 func SendSockPair(socket int) error {
 	conn, err := netlink.Dial(netlinkNum, nil)
@@ -30,9 +35,9 @@ func SendSockPair(socket int) error {
 
 	data := make([]byte, 4)
 	copy(data[:], strconv.Itoa(socket))
-	nlmsg := netlink.Message {
-		Header: netlink.Header {
-			type: userDefine
+	nlmsg := netlink.Message{
+		Header: netlink.Header{
+			Type: userDefine,
 		},
 		Data: data,
 	}
@@ -40,4 +45,5 @@ func SendSockPair(socket int) error {
 	if err != nil {
 		return err
 	}
+	return nil
 }

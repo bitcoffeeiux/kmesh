@@ -33,6 +33,7 @@ import (
 	"kmesh.net/kmesh/pkg/controller"
 	"kmesh.net/kmesh/pkg/controller/dump"
 	"kmesh.net/kmesh/pkg/logger"
+	"kmesh.net/kmesh/pkg/mtlsproxy"
 )
 
 const (
@@ -97,6 +98,11 @@ func Execute(configs *options.BootstrapConfigs) error {
 	}
 	log.Info("command Start cni successful")
 	defer cniInstaller.Stop()
+
+	mtls := mtlsproxy.NewProxy()
+	mtls.Start()
+	log.Info("mtlsproxy start success")
+	defer mtls.Stop()
 
 	setupCloseHandler()
 	return nil

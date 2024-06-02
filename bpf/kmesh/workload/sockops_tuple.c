@@ -189,7 +189,7 @@ int record_tuple(struct bpf_sock_ops *skops)
         else if (skops_conn_from_cni_sim_delete(skops))
             remove_ip(skops->local_ip4);
         else if (!is_managed_by_kmesh(skops->local_ip4)) {
-            bpf_migration_socket(skops);
+            bpf_migration_socket(skops, 1);
             enable_sendmsg_handle(skops);
         }
         break;
