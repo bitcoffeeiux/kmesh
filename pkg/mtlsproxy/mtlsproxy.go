@@ -17,42 +17,50 @@
 package mtlsproxy
 
 import (
+	"golang.org/x/sys/unix"
 	"kmesh.net/kmesh/pkg/logger"
-	"kmesh.net/kmesh/pkg/utils"
 )
 
 var log = logger.NewLoggerField("mtls proxy")
 
 type mtlsproxy struct {
-	worker *utils.WorkerPool
-	done   chan bool
+	done chan bool
 }
 
 func NewProxy() *mtlsproxy {
 	return &mtlsproxy{
-		worker: utils.NewWorkPool(10),
-		done:   make(chan bool, 1),
+		done: make(chan bool, 1),
 	}
 }
 
-func (proxy *mtlsproxy) Start() {
+func (proxy *mtlsproxy) Start() error {
 	log.Debug("mtls proxy start...")
-	sockpair := NewNetlinkSock()
+	sockpair := NewSockPair()
 
-	proxy.worker.Run()
+	err := sockpair.Run()
+	if err != nil {
+		return err
+	}
+
 	go func() {
 		for {
 			select {
 			case <-proxy.done:
 				break
 			default:
-				migration_sock, role := netlink_sock.GetNext()
+				migration_sock, role := sockpair.GetNext()
+				if err == unix.EAGAIN {
+					continue
+				} else if err != nil {
+					log.Errorf("Failed to operator sockpair, err is %v\n", err)
+					break
+				}
 				task := NewMtlsTask(migration_sock, role)
-				proxy.worker.Add(func() {
+				go func() {
 					if err := task.Handle(); err != nil {
 						log.Error(err)
 					}
-				})
+				}()
 			}
 		}
 	}()
@@ -60,6 +68,4 @@ func (proxy *mtlsproxy) Start() {
 
 func (proxy *mtlsproxy) Stop() {
 	proxy.done <- true
-	proxy.worker.Stop()
-	proxy.worker.Wait()
 }

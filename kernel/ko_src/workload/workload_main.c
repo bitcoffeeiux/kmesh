@@ -13,6 +13,7 @@
 
 static int __init kmesh_workload_init(void)
 {
+    sock_migration_init();
     workload_helper_ext_init();
     return 0;
 }
@@ -20,6 +21,7 @@ static int __init kmesh_workload_init(void)
 static void __exit kmesh_workload_exit(void)
 {
     workload_helper_ext_exit();
+    sock_migration_exit();
 }
 
 module_init(kmesh_workload_init);

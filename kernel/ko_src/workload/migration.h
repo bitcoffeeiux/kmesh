@@ -12,3 +12,5 @@ typedef struct {
 } info;
 
 int send_sockfd(info *inf);
+int sock_migration_init(void);
+void sock_migration_exit(void);

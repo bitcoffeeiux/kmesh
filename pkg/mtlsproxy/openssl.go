@@ -17,6 +17,7 @@
 package mtlsproxy
 
 // #cgo LDFLAGS: -lssl -lcrypto
+// #include <sys/socket.h>
 // #include <openssl/ssl.h>
 // #include <openssl/err.h>
 // #include <openssl/evp.h>
@@ -26,6 +27,9 @@ struct ssl_content {
 	SSL_CTX *ctx;
 	SSL *ssl;
 };
+
+#define ROLE_CLIENT 0
+#define ROLE_SERVER 0
 
 SSL_CTX *openssl_create_ctx(int role)
 {
@@ -37,7 +41,7 @@ SSL_CTX *openssl_create_ctx(int role)
 	OpenSSL_add_all_algorithms();
 
 	// create openssl context
-	if (role == 0) { // client
+	if (role == ROLE_CLIENT) { // client
 		ctx = SSL_CTX_new(SSLv23_client_method());
 	} else { // server
 		ctx = SSL_CTX_new(SSLv23_server_method());
@@ -105,31 +109,35 @@ struct ssl_content * do_ssl(int socketfd, char *crt, char *privKey, int role)
 	return ssl_content;
 }
 
-int connect_ssl(struct ssl_content *ssl_content)
+int handle_ssl(struct ssl_content *ssl_content, int role)
 {
-	if (SSL_connect(ssl_content->ssl) == -1) {
-		ERR_print_errors_fp(stderr);
-		return -1;
+	int retry_num = 0;
+	int rc;
+Retry:
+	if (role == ROLE_CLIENT) {
+		// server connect to client in mtls
+		rc = SSL_accept(ssl_content->ssl);
+	} else if (role == ROLE_SERVER) {
+		// server connect to client in mtls
+		rc = SSL_connect(ssl_content->ssl);
+	} else {
+		// impossible
 	}
-	return 0;
-}
 
-int accept_ssl(struct ssl_content *ssl_content)
-{
-	if (SSL_accept(ssl_content->ssl) == -1) {
-		ERR_print_errors_fp(stderr);
-		return -1;
+	if ( rc == -1 && errno == 11 && retry_num <= 3) {
+		retry_num++;
+		goto Retry;
 	}
-	return 0;
-}
 
-int clean_ssl(struct ssl_content *ssl_content) {
-	if (!ssl_content)
-		return 0;
+	SSL_set_fd(ssl_content->ssl, -1);
 	SSL_shutdown(ssl_content->ssl);
 	SSL_free(ssl_content->ssl);
 	SSL_CTX_free(ssl_content->ctx);
-	free(ssl_content);
+
+	if (rc == -1) {
+		ERR_print_errors_fp(stderr);
+		return -1;
+	}
 	return 0;
 }
 
@@ -138,45 +146,51 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
-func OpensslAccept(cert string, privKey string, socketfd int) error {
+func OpensslHandle(cert string, privKey string, socketfd, role int) error {
 	cstringCert := C.CString(cert)
 	defer C.free(unsafe.Pointer(cstringCert))
 	cstringPriv := C.CString(privKey)
 	defer C.free(unsafe.Pointer(cstringPriv))
+
+	if err := unix.SetsockoptInt(socketfd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+		err = fmt.Errorf("socketfd set reuseport failed: %v\n", err)
+		return err
+	}
+
+	fd_ptr := uintptr(socketfd)
+	flags, err := unix.FcntlInt(fd_ptr, unix.F_GETFL, 0)
+	if err != nil {
+		err = fmt.Errorf("socketfd get fcntl failed: %v\n", err)
+		return err
+	}
+	if _, err = unix.FcntlInt(fd_ptr, unix.FSETFL, flags & ^unix.O_NONBLOCK); err != nil {
+		err = fmt.Errorf("socketfd set fcntl failed: %v\n", err)
+		return err
+	}
 
 	ret := C.do_ssl(C.int(socketfd), cstringCert, cstringPriv, C.int(ROLE_SERVER))
 	if ret == nil {
 		err := fmt.Errorf("do openssl init failed")
 		return err
 	}
-	retnum := C.accept_ssl(ret)
+	retnum := C.handle_ssl(ret, C.int(role))
 	if retnum != 0 {
-		err := fmt.Errorf("do openssl accept failed, retnum is %d", retnum)
-		C.clean_ssl(ret)
+		var err error
+		if role == 0 {
+			err = fmt.Errorf("do openssl accept failed, retnum is %d", retnum)
+		} else {
+			err = fmt.Errorf("do openssl connect failed, retnum is %d", retnum)
+		}
+		return err
+	}
+	if _, err = unix.FcntlInt(fd_ptr, unix.F_SETFL, flags); err != nil {
+		err = fmt.Errorf("recover sockfd fcntl failed: %v\n", err)
 		return err
 	}
 
-	return nil
-}
-
-func OpensslConnect(cert string, privKey string, socketfd int) error {
-	cstringCert := C.CString(cert)
-	defer C.free(unsafe.Pointer(cstringCert))
-	cstringPriv := C.CString(privKey)
-	defer C.free(unsafe.Pointer(cstringPriv))
-
-	ret := C.do_ssl(C.int(socketfd), cstringCert, cstringPriv, C.int(ROLE_CLIENT))
-	if ret == nil {
-		err := fmt.Errorf("do openssl init failed")
-		return err
-	}
-	retnum := C.connect_ssl(ret)
-	if retnum != 0 {
-		err := fmt.Errorf("do openssl connect failed, retnum is %d", retnum)
-		C.clean_ssl(ret)
-		return err
-	}
 	return nil
 }

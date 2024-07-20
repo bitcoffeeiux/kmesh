@@ -16,72 +16,77 @@
 
 package mtlsproxy
 
-import "net"
+import (
+	"bytes"
+	"encoding/binary"
+
+	"golang.org/x/sys/unix"
+	"kmesh.net/kmesh/pkg/utils"
+)
 
 type Sockpair struct {
-	conn net.Conn
+	sock int
 }
 
 func NewSockPair() *Sockpair {
-	return & Sockpair{
-		conn: nil
+	return &Sockpair{
+		sock: 0,
 	}
 }
 
-func (s *sockpair) Run() error {
-	pair, err := syscall.SocketPair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+func (s *Sockpair) Run() error {
+	pair, err := unix.SocketPair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
 		log.Errorf("Failed to create socket pair, err is %v\n", err)
 		return err
 	}
 
-	err := utils.SendSockPair(s.pair[1])
-	if err != nil {
+	if err = utils.SendSockPair(pair[1]); err != nil {
 		log.Errorf("Failed to dial netlink, err is %v\n", err)
 		return err
 	}
-	file := os.NewFile(uintptr(pair[0], ""))
-	defer file.Close()
-	s.conn, err := net.FileConn(file)
-	if err != nil {
-		log.Errorf("Failed to create file conn, err is %v\n", err)
-		return err
-	}
+	s.sock = pair[0]
 	return nil
 }
 
 func (s *sockpair) GetNext() (int, int, error) {
-	if s.conn == nil {
-		err := fmt.Errorf("sockpair not init\n")
-		log.Errorf(err)
-		return 0, 0, err
-	}
-	buf := make([]byte, 32)
+	buf := make([]byte, 1)
 	oob := make([]byte, 32)
 	for {
-		_, oobn, _, _, err := s.conn.(*net.UnixConn).ReadMsgUnix(buf, oob)
+		_, oobn, _, _, err := unix.Recvmsg(s.sock, buf, oob, 0)
 		if err != nil {
-			log.Errorf("Failed to read msg unix, err is %v\n", err)
+			if err != unix.EAGAIN {
+				log.Errorf("Failed to read msg unix, err is %v\n", err)
+			}
 			return 0, 0, err
 		}
 
-		scms, err := syscall.ParseSocketControlMessage(oob[:oobn])
+		scms, err := unix.ParseSocketControlMessage(oob[:oobn])
 		if err != nil {
 			log.Errorf("Failed to parse unix rights, err is %v\n", err)
 			return 0, 0, err
 		}
 
 		if len(scms) == 0 {
-			log.Warnf("scms len is 0\n")
+			log.Warnf("get a valid message, scms len is 0\n")
 			continue
 		}
-		
-		info, err := syscall.ParseUnixRights(&(scms[0]))
+
+		info, err := unix.ParseUnixRights(&(scms[0]))
 		if err != nil {
 			log.Errorf("Failed to parse unix rights, err is %v\n", err)
 			return 0, 0, err
 		}
 
-		return info[0], info[1], nil
+
+		var role int8
+		err = binary.Read(bytes.NewBuffer(buf), binary.LittleEndian, &role)
+		if err != nil {
+			log.Errorf("Failed to parse role, err is %v\n", err)
+			return 0, 0, err
+		}
+		role -= '0'
+
+		return info[0], int(role), nil
 	}
 }

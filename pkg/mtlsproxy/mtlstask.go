@@ -17,10 +17,11 @@
 package mtlsproxy
 
 import (
-	"context"
+	"fmt"
 	"net"
-	"os"
-	"time"
+
+	"golang.org/x/sys/unix"
+	"kmesh.net/kmesh/pkg/utils"
 )
 
 const ROLE_CLIENT = 0
@@ -41,51 +42,29 @@ func NewMtlsTask(socketfd int, role int) *MtlsTask {
 }
 
 func (task *MtlsTask) Handle() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
-	defer cancel()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		var err error
-		if err = task.restoreSocket(); err != nil {
-			return err
-		}
-
-		if task.role == ROLE_SERVER {
-			err = task.sslAccept()
-		} else {
-			err = task.sslConnect()
-		}
-		if err == nil {
-			netlink_sock.ResetOwner(task.Socketfd)
-		}
+	var err error
+	if err = utils.SetSockOwner(task.Socketfd); err != nil {
 		return err
 	}
-}
 
-func (task *MtlsTask) restoreSocket() error {
-	var err error
-	if task.conn != nil {
-		return nil
+	if err = task.sslHandle(task.role); err == nil {
+		unix.Shutdown(task.Socketfd, unix.SHUT_RDWR)
+		return err
 	}
 
-	task.conn, err = net.FileConn(os.NewFile(uintptr(task.Socketfd), "socket"))
-	if err != nil {
-		task.conn = nil
+	if err = utils.ResetOwner(task.Socketfd); err != nil {
+		return err
+	}
+
+	if err = unix.Close(task.Socketfd); err != nil {
+		err = fmt.Errorf("Failed to close migration socket, err is %v\n", err)
+		return err
 	}
 	return err
 }
 
-func (task *MtlsTask) sslAccept() error {
-	cert := "server.cert"
-	privKey := "server.key"
-	return OpensslAccept(cert, privKey, task.Socketfd)
-}
-
-func (task *MtlsTask) sslConnect() error {
-	cert := "server.cert"
-	privKey := "server.key"
-	return OpensslConnect(cert, privKey, task.Socketfd)
+func (task *MtlsTask) sslHandle(role int) error {
+	cert := "/home/server.cert"
+	privKey := "/home/server.key"
+	return OpensslHandle(cert, privKey, task.Socketfd, role)
 }
