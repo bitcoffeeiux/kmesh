@@ -25,6 +25,7 @@ import (
 	bpfwl "kmesh.net/kmesh/pkg/bpf/workload"
 	"kmesh.net/kmesh/pkg/constants"
 	"kmesh.net/kmesh/pkg/controller/bypass"
+	"kmesh.net/kmesh/pkg/controller/encryption/ipsec"
 	manage "kmesh.net/kmesh/pkg/controller/manage"
 	"kmesh.net/kmesh/pkg/controller/security"
 	"kmesh.net/kmesh/pkg/dns"
@@ -48,6 +49,7 @@ type Controller struct {
 	enableBpfLog        bool
 	enableAccesslog     bool
 	enablePerfMonitor   bool
+	enableIpsec         bool
 }
 
 func NewController(opts *options.BootstrapConfigs, bpfAdsObj *bpfads.BpfAds, bpfWorkloadObj *bpfwl.BpfWorkload, bpfFsPath string, enableBpfLog, enableAccesslog bool) *Controller {
@@ -101,6 +103,15 @@ func (c *Controller) Start(stopCh <-chan struct{}) error {
 
 	if c.mode != constants.DualEngineMode && c.mode != constants.KernelNativeMode {
 		return nil
+	}
+
+	if c.enableIpsec {
+		c, err := ipsec.NewIPsecController()
+		if err != nil {
+			return fmt.Errorf("failed to new IPSec controller")
+		}
+		go c.Run(stopCh)
+		log.Info("start ipsec controller successfully")
 	}
 
 	if c.enableBpfLog {
