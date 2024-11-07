@@ -12,6 +12,7 @@
 #define MAP_SIZE_OF_AUTH        8192
 #define MAP_SIZE_OF_DSTINFO     8192
 #define MAP_SIZE_OF_AUTH_POLICY 512
+#define MAP_SIZE_OF_NODEINFO    8192
 
 // map name
 #define map_of_frontend kmesh_frontend
