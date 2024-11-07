@@ -106,7 +106,7 @@ func (c *Controller) Start(stopCh <-chan struct{}) error {
 	}
 
 	if c.enableIpsec {
-		c, err := ipsec.NewIPsecController()
+		c, err := ipsec.NewIPsecController(clientset)
 		if err != nil {
 			return fmt.Errorf("failed to new IPSec controller")
 		}
