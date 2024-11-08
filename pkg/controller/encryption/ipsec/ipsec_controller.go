@@ -380,12 +380,19 @@ func (ic *ipsecController) handleKNIDeleteFunc(obj interface{}) {
 func (ic *ipsecController) Run(stop <-chan struct{}) {
 	// update my kmesh node info, notify other machines that the key can be update.
 	_, err := ic.kniClient.Create(context.TODO(), &ic.kmeshNodeInfo, metav1.CreateOptions{})
-	if err != nil && api_errors.IsAlreadyExists(err) {
-		_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
-	}
-	if err != nil {
-		log.Errorf("failed to update kmesh node info to k8s: %v", err)
+	if err != nil && !api_errors.IsAlreadyExists(err) {
+		log.Errorf("failed to create kmesh node info to k8s: %v", err)
 		return
+	}
+	tmpUpdate, err := ic.kniClient.Get(context.TODO(), ic.kmeshNodeInfo.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get kmesh node info to k8s: %v", err)
+		return
+	}
+	ic.kmeshNodeInfo.ResourceVersion = tmpUpdate.ResourceVersion
+	_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
+	if err != nil {
+
 	}
 
 	go ic.ipsecKey.StartWatch(IpSecKeyFile)
