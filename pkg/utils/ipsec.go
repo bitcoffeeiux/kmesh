@@ -72,10 +72,11 @@ func createPolicyRule(rawDstCIDR string, src net.IP, dst net.IP, out bool, nodeI
 				Mode:  netlink.XFRM_MODE_TUNNEL,
 			},
 		},
+		Mark: &netlink.XfrmMark{},
 	}
 
 	if out {
-		mark, err := strconv.ParseInt("0x"+nodeID+strconv.Itoa(int(spi))+"e00", 10, 64)
+		mark, err := strconv.ParseInt(nodeID+strconv.Itoa(int(spi))+"e00", 16, 64)
 		if err != nil {
 			return fmt.Errorf("failed to convert mark in inserting xfrm out rule, %v", err)
 		}
@@ -88,7 +89,7 @@ func createPolicyRule(rawDstCIDR string, src net.IP, dst net.IP, out bool, nodeI
 			return fmt.Errorf("failed to add xfrm policy to host in inserting xfrm out rule, %v", err)
 		}
 	} else {
-		mark, err := strconv.ParseInt("0x"+nodeID+"d00", 10, 64)
+		mark, err := strconv.ParseInt(nodeID+"d00", 16, 64)
 		if err != nil {
 			return fmt.Errorf("failed to convert mark in inserting xfrm in rule, %v", err)
 		}

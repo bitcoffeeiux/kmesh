@@ -27,7 +27,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
     __uint(map_flags, BPF_F_NO_PREALLOC);
-    __type(key, __u16);
+    __type(key, __u32);
     __type(value, struct nodeinfo);
 } map_of_sk_storage SEC(".maps");
 

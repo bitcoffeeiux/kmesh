@@ -83,7 +83,7 @@ void security_mark(struct kmesh_context *kmesh_ctx, bool isIPv6)
     if (!nodeinfo) {
         return;
     }
-    storage = bpf_sk_storage_get(&map_of_sk_storage, kmesh_ctx->ctx, 0, BPF_SK_STORAGE_GET_F_CREATE);
+    storage = bpf_sk_storage_get(&map_of_sk_storage, kmesh_ctx->ctx->sk, 0, BPF_SK_STORAGE_GET_F_CREATE);
     if (!storage) {
         BPF_LOG(ERR, KMESH, "failed to alloc storage!");
         return;

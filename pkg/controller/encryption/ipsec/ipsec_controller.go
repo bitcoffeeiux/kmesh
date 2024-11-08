@@ -48,7 +48,7 @@ const (
 	ActionAdd     = "add"
 	ActionDelete  = "delete"
 	ActionUpdate  = "modify"
-	IpSecKeyFile  = "/root/kmesh-ipsec"
+	IpSecKeyFile  = "/root/kmesh-ipsec/keys"
 	offsetSpi     = 0
 	offsetAead    = 1
 	offsetAeadKey = 2
@@ -61,21 +61,18 @@ const (
 
 type QueueItem struct {
 	name   string
-	spi    int8
-	nicIPs []string
-	bootID string
-	cirds  []string
 	action string
 }
 
 type kmeshNodeInfo struct {
 	spi    uint32
 	nodeid uint16
+	_      uint16
 }
 
 type lpm_key struct {
 	trie_key uint32
-	ip       []uint32
+	ip       [4]uint32
 }
 
 type ipSecKeyBase struct {
@@ -193,7 +190,7 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 		factory:   factroy,
 		informer:  factroy.Kmeshnodeinfo().V1alpha1().KmeshNodeInfos(),
 		queue:     workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[any]()),
-		kniClient: clientSet.KmeshnodeinfoV1alpha1().KmeshNodeInfos("default"),
+		kniClient: clientSet.KmeshnodeinfoV1alpha1().KmeshNodeInfos("kmesh-system"),
 	}
 
 	if _, err := ipsecController.informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -223,6 +220,7 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 		return nil, fmt.Errorf("failed to get kmesh node info from k8s: %v", err)
 	}
 
+	ipsecController.kmeshNodeInfo.Name = myNodeName
 	ipsecController.kmeshNodeInfo.Spec.Name = myNodeName
 	ipsecController.kmeshNodeInfo.Spec.BootID = myNode.Status.NodeInfo.BootID
 	ipsecController.kmeshNodeInfo.Spec.Cirds = myNode.Spec.PodCIDRs
@@ -251,6 +249,11 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 }
 
 func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeInfo) error {
+	mapfd, err := ebpf.LoadPinnedMap(KmeshNodeInfoMapPath, nil)
+	if err != nil {
+		err = fmt.Errorf("failed to get kmesh node info map fd, %v", err)
+		return err
+	}
 	/*
 	 * src is remote host, dst is local host
 	 * create xfrm rule like:
@@ -265,21 +268,12 @@ func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 				var sum utils.Sum
 				sum.Write([]byte(localNicIP))
 				nodeID := fmt.Sprintf("%x", sum.Sum16())
-				if err := utils.InsertXfrmRule(remoteNicIP, localNicIP, nodeID, localCIDR, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
+				if err := utils.InsertXfrmRule(remoteNicIP, localNicIP, localCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
 					newKey, ic.ipsecKey.ipSecKeyBase.Length, false); err != nil {
 					return err
 				}
 			}
 		}
-	}
-	return nil
-}
-
-func (ic *ipsecController) createXfrmOutRule(target *v1alpha1_core.KmeshNodeInfo) error {
-	mapfd, err := ebpf.LoadPinnedMap(KmeshNodeInfoMapPath, nil)
-	if err != nil {
-		err = fmt.Errorf("failed to get kmesh node info map fd, %v", err)
-		return err
 	}
 	/*
 	 * src is local host, dst is remote host
@@ -294,7 +288,7 @@ func (ic *ipsecController) createXfrmOutRule(target *v1alpha1_core.KmeshNodeInfo
 				var sum utils.Sum
 				sum.Write([]byte(remoteNicIP))
 				nodeID := fmt.Sprintf("%x", sum.Sum16())
-				if err := utils.InsertXfrmRule(localNicIP, remoteNicIP, nodeID, remoteCIDR, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
+				if err := utils.InsertXfrmRule(localNicIP, remoteNicIP, remoteCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
 					newKey, ic.ipsecKey.ipSecKeyBase.Length, true); err != nil {
 					return err
 				}
@@ -305,6 +299,7 @@ func (ic *ipsecController) createXfrmOutRule(target *v1alpha1_core.KmeshNodeInfo
 				}
 				ip, _ := netip.ParseAddr(cidr[0])
 				if ip.Is4() {
+
 					kniKey.ip[0] = binary.BigEndian.Uint32(ip.AsSlice())
 				} else if ip.Is6() {
 					// TODO
@@ -341,10 +336,6 @@ func (ic *ipsecController) handleKNIAddFunc(obj interface{}) {
 	}
 
 	ic.queue.AddRateLimited(QueueItem{name: kni.Spec.Name,
-		spi:    kni.Spec.Spi,
-		bootID: kni.Spec.BootID,
-		nicIPs: kni.Spec.NicIPs,
-		cirds:  kni.Spec.Cirds,
 		action: ActionAdd})
 }
 
@@ -372,10 +363,6 @@ func (ic *ipsecController) handleKNIUpdateFunc(_, newObj interface{}) {
 	}
 
 	ic.queue.AddRateLimited(QueueItem{name: newKni.Spec.Name,
-		spi:    newKni.Spec.Spi,
-		bootID: newKni.Spec.BootID,
-		nicIPs: newKni.Spec.NicIPs,
-		cirds:  newKni.Spec.Cirds,
 		action: ActionUpdate})
 }
 
@@ -386,16 +373,15 @@ func (ic *ipsecController) handleKNIDeleteFunc(obj interface{}) {
 		return
 	}
 	ic.queue.AddRateLimited(QueueItem{name: kni.Spec.Name,
-		spi:    kni.Spec.Spi,
-		bootID: kni.Spec.BootID,
-		nicIPs: kni.Spec.NicIPs,
-		cirds:  kni.Spec.Cirds,
 		action: ActionDelete})
 }
 
 func (ic *ipsecController) Run(stop <-chan struct{}) {
 	// update my kmesh node info, notify other machines that the key can be update.
-	_, err := ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
+	_, err := ic.kniClient.Create(context.TODO(), &ic.kmeshNodeInfo, metav1.CreateOptions{})
+	if err != nil && os.IsExist(err) {
+		_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
+	}
 	if err != nil {
 		log.Errorf("failed to update kmesh node info to k8s: %v", err)
 		return
@@ -432,8 +418,8 @@ func (ic *ipsecController) processNextItem() bool {
 			log.Errorf("failed to get kmesh node info when process next: %v", err)
 			return false
 		}
-		if err := ic.createXfrmOutRule(kniNodeInfo); err != nil {
-			log.Errorf("create xfrm out rule failed: %v", err)
+		if err := ic.handleOtherNodeInfo(kniNodeInfo); err != nil {
+			log.Errorf("create xfrm out rule failed in processNextItem for node %v: %v", kniNodeInfo.Name, err)
 		}
 	} else if item.action == ActionDelete {
 
