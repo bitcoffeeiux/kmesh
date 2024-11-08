@@ -29,6 +29,9 @@ const (
 
 	XDP_PROG_NAME = "xdp_shutdown"
 
+	TC_INGRESS = "tc_mark_decrypt"
+	TC_EGRESS  = "tc_mark_encrypt"
+
 	RootCertPath = "/var/run/secrets/istio/root-cert.pem"
 	TrustDomain  = "cluster.local"
 
