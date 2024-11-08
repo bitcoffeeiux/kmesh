@@ -19,6 +19,7 @@ package utils
 import (
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 
 	"github.com/vishvananda/netlink"
@@ -85,7 +86,11 @@ func createPolicyRule(rawDstCIDR string, src net.IP, dst net.IP, out bool, nodeI
 		policy.Tmpls[0].Spi = int(spi)
 		policy.Dir = netlink.XFRM_DIR_OUT
 
-		if err := netlink.XfrmPolicyAdd(policy); err != nil {
+		err = netlink.XfrmPolicyAdd(policy)
+		if err != nil && os.IsExist(err) {
+			err = netlink.XfrmPolicyUpdate(policy)
+		}
+		if err != nil {
 			return fmt.Errorf("failed to add xfrm policy to host in inserting xfrm out rule, %v", err)
 		}
 	} else {
@@ -97,12 +102,20 @@ func createPolicyRule(rawDstCIDR string, src net.IP, dst net.IP, out bool, nodeI
 		policy.Mark.Value = uint32(mark)
 		policy.Dir = netlink.XFRM_DIR_IN
 
-		if err := netlink.XfrmPolicyAdd(policy); err != nil {
+		err = netlink.XfrmPolicyAdd(policy)
+		if err != nil && os.IsExist(err) {
+			err = netlink.XfrmPolicyUpdate(policy)
+		}
+		if err != nil {
 			return fmt.Errorf("failed to add xfrm policy to host in inserting xfrm in rule, %v", err)
 		}
 
 		policy.Dir = netlink.XFRM_DIR_FWD
-		if err := netlink.XfrmPolicyAdd(policy); err != nil {
+		err = netlink.XfrmPolicyAdd(policy)
+		if err != nil && os.IsExist(err) {
+			err = netlink.XfrmPolicyUpdate(policy)
+		}
+		if err != nil {
 			return fmt.Errorf("failed to add xfrm policy to host in inserting xfrm fwd rule, %v", err)
 		}
 	}
@@ -123,7 +136,11 @@ func createStateRule(src net.IP, dst net.IP, spi int8, keyName string, key []byt
 			ICVLen: keyLength,
 		},
 	}
-	if err := netlink.XfrmStateAdd(state); err != nil {
+	err := netlink.XfrmStateAdd(state)
+	if err != nil && os.IsExist(err) {
+		err = netlink.XfrmStateUpdate(state)
+	}
+	if err != nil {
 		return fmt.Errorf("failed to add xfrm state to host in inserting xfrm out rule, %v", err)
 	}
 	return nil
