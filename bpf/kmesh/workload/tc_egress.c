@@ -2,7 +2,9 @@
 /* Copyright Authors of Kmesh */
 
 #include <linux/bpf.h>
+#include <linux/pkt_cls.h>
 #include <bpf/bpf_helpers.h>
+
 #include "bpf_log.h"
 #include "ipsec_map.h"
 
@@ -11,11 +13,14 @@ int tc_mark_encrypt(struct __sk_buff *ctx)
 {
     struct nodeinfo *nodeinfo;
 
+    if (!ctx->sk)  {
+        return TC_ACT_OK;
+    }
     nodeinfo = bpf_sk_storage_get(&map_of_sk_storage, ctx->sk, 0, 0);
     if (nodeinfo) {
         ctx->mark = ((nodeinfo->nodeid) << 12) + ((nodeinfo->spi) << 3) + 0xe00;
     }
-    return 0;
+    return TC_ACT_OK;
 }
 
 char _license[] SEC("license") = "Dual BSD/GPL";
