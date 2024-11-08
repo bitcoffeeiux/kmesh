@@ -32,6 +32,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"istio.io/pkg/log"
+	api_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -379,7 +380,7 @@ func (ic *ipsecController) handleKNIDeleteFunc(obj interface{}) {
 func (ic *ipsecController) Run(stop <-chan struct{}) {
 	// update my kmesh node info, notify other machines that the key can be update.
 	_, err := ic.kniClient.Create(context.TODO(), &ic.kmeshNodeInfo, metav1.CreateOptions{})
-	if err != nil && os.IsExist(err) {
+	if err != nil && api_errors.IsAlreadyExists(err) {
 		_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
 	}
 	if err != nil {
