@@ -4,13 +4,13 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: kmeshnodeinfoes.kmeshnodeinfo.kmesh.net
+  name: kmeshnodeinfos.kmesh.net
 spec:
-  group: kmeshnodeinfo.kmesh.net
+  group: kmesh.net
   names:
     kind: KmeshNodeInfo
     listKind: KmeshNodeInfoList
-    plural: kmeshnodeinfoes
+    plural: kmeshnodeinfos
     singular: kmeshnodeinfo
   scope: Namespaced
   versions:

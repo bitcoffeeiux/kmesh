@@ -7,7 +7,7 @@ import (
 )
 
 // register customer sources
-var SchemeGroupVersion = schema.GroupVersion{Group: "kmesh.net", Version: "v1"}
+var SchemeGroupVersion = schema.GroupVersion{Group: "kmesh.net", Version: "v1alpha1"}
 
 func Kind(kind string) schema.GroupKind {
 	return SchemeGroupVersion.WithKind(kind).GroupKind()
