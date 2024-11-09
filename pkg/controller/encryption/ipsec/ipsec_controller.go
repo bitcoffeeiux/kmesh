@@ -269,11 +269,8 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 }
 
 func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeInfo) error {
-	nodeNsPath, err := kmesh_netns.GetNodeNSpath()
-	if err != nil {
-		err = fmt.Errorf("failed to get current node ns path, %v", err)
-		return err
-	}
+	nodeNsPath := kmesh_netns.GetNodeNSpath()
+
 	mapfd, err := ebpf.LoadPinnedMap(KmeshNodeInfoMapPath, nil)
 	if err != nil {
 		err = fmt.Errorf("failed to get kmesh node info map fd, %v", err)
@@ -457,11 +454,8 @@ func (ic *ipsecController) Run(stop <-chan struct{}) {
 	ic.ipsecKey.StartWatch(ipsecUpdateChan)
 
 	go func() {
-		nodeNsPath, err := kmesh_netns.GetNodeNSpath()
-		if err != nil {
-			log.Errorf("failed to get nodens path, %v", err)
-			return
-		}
+		nodeNsPath := kmesh_netns.GetNodeNSpath()
+
 		for {
 			select {
 			case <-ipsecUpdateChan:
@@ -548,42 +542,53 @@ func (ic *ipsecController) attachTCforInternalNic() bool {
 		return false
 	}
 
-	nicInterfaces, err := net.Interfaces()
-	if err != nil {
-		log.Errorf("failed to get interfaces: %v", err)
-		return false
-	}
+	nodeNsPath := kmesh_netns.GetNodeNSpath()
+	var nicInterfaces []net.Interface
 
-	for _, targetAddrString := range ic.kmeshNodeInfo.Spec.NicIPs {
-		targetAddr := net.ParseIP(targetAddrString)
-		for _, iface := range nicInterfaces {
-			ifAddrs, err := iface.Addrs()
-			if err != nil {
-				log.Warnf("failed to convert interface %v, %v", iface, err)
-				continue
-			}
-			link, err := netlink.LinkByName(iface.Name)
-			if err != nil {
-				log.Warnf("failed to link interface %v, %v", iface, err)
-				continue
-			}
-
-			for _, ifaddr := range ifAddrs {
-				ipNet, ok := ifaddr.(*net.IPNet)
-				if !ok {
-					log.Warnf("failed to convert ifaddr %v, %v", ifaddr, err)
+	attachFunc := func(netns.NetNS) error {
+		nicInterfaces, err = net.Interfaces()
+		if err != nil {
+			err := fmt.Errorf("failed to get interfaces: %v", err)
+			return err
+		}
+		for _, targetAddrString := range ic.kmeshNodeInfo.Spec.NicIPs {
+			targetAddr := net.ParseIP(targetAddrString)
+			for _, iface := range nicInterfaces {
+				ifAddrs, err := iface.Addrs()
+				if err != nil {
+					log.Warnf("failed to convert interface %v, %v", iface, err)
 					continue
 				}
-				if ipNet.IP.Equal(targetAddr) {
-					err = utils.AttchTCProgram(link, tc, utils.TC_DIR_INGRESS)
-					if err != nil {
-						log.Warnf("failed to attach tc ebpf on interface %v, %v", iface, err)
+				link, err := netlink.LinkByName(iface.Name)
+				if err != nil {
+					log.Warnf("failed to link interface %v, %v", iface, err)
+					continue
+				}
+
+				for _, ifaddr := range ifAddrs {
+					ipNet, ok := ifaddr.(*net.IPNet)
+					if !ok {
+						log.Warnf("failed to convert ifaddr %v, %v", ifaddr, err)
 						continue
+					}
+					if ipNet.IP.Equal(targetAddr) {
+						err = utils.AttchTCProgram(link, tc, utils.TC_DIR_INGRESS)
+						if err != nil {
+							log.Warnf("failed to attach tc ebpf on interface %v, %v", iface, err)
+							continue
+						}
 					}
 				}
 			}
 		}
+		return nil
 	}
+
+	if err := netns.WithNetNSPath(nodeNsPath, attachFunc); err != nil {
+		log.Error(err)
+		return false
+	}
+
 	return true
 }
 
