@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"strconv"
@@ -34,12 +35,15 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/fsnotify/fsnotify"
+	"github.com/vishvananda/netlink"
 	"istio.io/pkg/log"
+	v1 "k8s.io/api/core/v1"
 	api_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"kmesh.net/kmesh/pkg/constants"
 	v1alpha1_core "kmesh.net/kmesh/pkg/kube/apis/kmeshnodeinfo/v1alpha1"
 	v1alpha1_clientset "kmesh.net/kmesh/pkg/kube/exnodeinfo/clientset/versioned/typed/kmeshnodeinfo/v1alpha1"
 	informer "kmesh.net/kmesh/pkg/kube/exnodeinfo/informers/externalversions"
@@ -221,6 +225,7 @@ type ipsecController struct {
 	kniClient     v1alpha1_clientset.KmeshNodeInfoInterface
 	kmeshNodeInfo v1alpha1_core.KmeshNodeInfo
 	ipsecKey      ipSecKey
+	myNode        *v1.Node
 }
 
 func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, error) {
@@ -252,44 +257,12 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 		return nil, fmt.Errorf("failed to add event handler to kmeshnodeinfoInformer: %v", err)
 	}
 
-	if err = ipsecController.ipsecKey.LoadIPSecKey(IpSecKeyFile); err != nil {
-		return nil, err
-	}
-
-	ipsecKeyBase := ipsecController.ipsecKey.GetIPSecKey()
-	ipsecController.kmeshNodeInfo.Spec.Spi = ipsecKeyBase.Spi
-
 	myNodeName := os.Getenv("NODE_NAME")
 	myNode, err := k8sClientSet.CoreV1().Nodes().Get(context.TODO(), myNodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kmesh node info from k8s: %v", err)
 	}
-
-	ipsecController.kmeshNodeInfo.Name = myNodeName
-	ipsecController.kmeshNodeInfo.Spec.Name = myNodeName
-	ipsecController.kmeshNodeInfo.Spec.BootID = myNode.Status.NodeInfo.BootID
-	ipsecController.kmeshNodeInfo.Spec.Cirds = myNode.Spec.PodCIDRs
-	for _, addr := range myNode.Status.Addresses {
-		if strings.Compare(string(addr.Type), "InternalIP") == 0 {
-			ipsecController.kmeshNodeInfo.Spec.NicIPs = append(ipsecController.kmeshNodeInfo.Spec.NicIPs, addr.Address)
-		}
-	}
-
-	// create xfrm in rule, current host not update my kmeshnodeinfo
-	// the peer end does not use the key of the current host to send encrypted data.
-	kmeshNodeInfoList, err := ipsecController.kniClient.List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kmesh node info list: %v", err)
-	}
-	for _, node := range kmeshNodeInfoList.Items {
-		if ipsecController.isMine(node.Name) {
-			continue
-		}
-		if err = ipsecController.handleOtherNodeInfo(&node); err != nil {
-			log.Errorf("failed to create xfrm rule for node %v: err: %v", node.Name, err)
-		}
-	}
-
+	ipsecController.myNode = myNode
 	return ipsecController, nil
 }
 
@@ -421,22 +394,42 @@ func (ic *ipsecController) handleKNIDeleteFunc(obj interface{}) {
 }
 
 func (ic *ipsecController) Run(stop <-chan struct{}) {
-	// update my kmesh node info, notify other machines that the key can be update.
+	err := ic.ipsecKey.LoadIPSecKey(IpSecKeyFile)
+	if err != nil {
+		log.Errorf(err)
+		return
+	}
 
-	_, err := ic.kniClient.Create(context.TODO(), &ic.kmeshNodeInfo, metav1.CreateOptions{})
-	if err != nil && !api_errors.IsAlreadyExists(err) {
-		log.Errorf("failed to create kmesh node info to k8s: %v", err)
+	ipsecKeyBase := ic.ipsecKey.GetIPSecKey()
+	ic.kmeshNodeInfo.Spec.Spi = ipsecKeyBase.Spi
+
+	myNodeName := os.Getenv("NODE_NAME")
+
+	ic.kmeshNodeInfo.Name = myNodeName
+	ic.kmeshNodeInfo.Spec.Name = myNodeName
+	ic.kmeshNodeInfo.Spec.BootID = ic.myNode.Status.NodeInfo.BootID
+	ic.kmeshNodeInfo.Spec.Cirds = ic.myNode.Spec.PodCIDRs
+
+	for _, addr := range ic.myNode.Status.Addresses {
+		if strings.Compare(string(addr.Type), "InternalIP") == 0 {
+			ic.kmeshNodeInfo.Spec.NicIPs = append(ic.kmeshNodeInfo.Spec.NicIPs, addr.Address)
+		}
+	}
+
+	ok := ic.attachTCforInternalNic()
+	if !ok {
 		return
 	}
-	tmpUpdate, err := ic.kniClient.Get(context.TODO(), ic.kmeshNodeInfo.Name, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("failed to get kmesh node info to k8s: %v", err)
+
+	// create xfrm in rule, current host not update my kmeshnodeinfo
+	// the peer end does not use the key of the current host to send encrypted data.
+	ok = ic.handleAllKmeshNodeInfo()
+	if !ok {
 		return
 	}
-	ic.kmeshNodeInfo.ResourceVersion = tmpUpdate.ResourceVersion
-	_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
-	if err != nil {
-		log.Errorf("failed to update kmeshinfo, %v", err)
+	// update my kmesh node info, notify other machines that the key can be update.
+	ok = ic.updateKmeshNodeInfo(err)
+	if !ok {
 		return
 	}
 	ipsecUpdateChan := make(chan bool)
@@ -476,6 +469,89 @@ func (ic *ipsecController) Run(stop <-chan struct{}) {
 	}
 	for ic.processNextItem() {
 	}
+}
+
+func (ic *ipsecController) handleAllKmeshNodeInfo() bool {
+	kmeshNodeInfoList, err := ic.kniClient.List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to get kmesh node info list: %v", err)
+		return false
+	}
+	for _, node := range kmeshNodeInfoList.Items {
+		if ic.isMine(node.Name) {
+			continue
+		}
+		if err = ic.handleOtherNodeInfo(&node); err != nil {
+			log.Errorf("failed to create xfrm rule for node %v: err: %v", node.Name, err)
+		}
+	}
+	return true
+}
+
+func (ic *ipsecController) updateKmeshNodeInfo(err error) bool {
+	_, err = ic.kniClient.Create(context.TODO(), &ic.kmeshNodeInfo, metav1.CreateOptions{})
+	if err != nil && !api_errors.IsAlreadyExists(err) {
+		log.Errorf("failed to create kmesh node info to k8s: %v", err)
+		return false
+	}
+	tmpUpdate, err := ic.kniClient.Get(context.TODO(), ic.kmeshNodeInfo.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get kmesh node info to k8s: %v", err)
+		return false
+	}
+	ic.kmeshNodeInfo.ResourceVersion = tmpUpdate.ResourceVersion
+	_, err = ic.kniClient.Update(context.TODO(), &ic.kmeshNodeInfo, metav1.UpdateOptions{})
+	if err != nil {
+		log.Errorf("failed to update kmeshinfo, %v", err)
+		return false
+	}
+	return true
+}
+
+func (ic *ipsecController) attachTCforInternalNic() bool {
+	tc, err := utils.GetProgramByName(constants.TC_INGRESS)
+	if err != nil {
+		log.Errorf("failed to get tc ebpf program in ipsec controller, %v", err)
+		return false
+	}
+
+	nicInterfaces, err := net.Interfaces()
+	if err != nil {
+		log.Errorf("failed to get interfaces: %v", err)
+		return false
+	}
+
+	for _, targetAddrString := range ic.kmeshNodeInfo.Spec.NicIPs {
+		targetAddr := net.ParseIP(targetAddrString)
+		for _, iface := range nicInterfaces {
+			ifAddrs, err := iface.Addrs()
+			if err != nil {
+				log.Warnf("failed to convert interface %v, %v", iface, err)
+				continue
+			}
+			link, err := netlink.LinkByName(iface.Name)
+			if err != nil {
+				log.Warnf("failed to link interface %v, %v", iface, err)
+				continue
+			}
+
+			for _, ifaddr := range ifAddrs {
+				ipNet, ok := ifaddr.(*net.IPNet)
+				if !ok {
+					log.Warnf("failed to convert ifaddr %v, %v", ifaddr, err)
+					continue
+				}
+				if ipNet.IP.Equal(targetAddr) {
+					err = utils.AttchTCProgram(link, tc, utils.TC_DIR_INGRESS)
+					if err != nil {
+						log.Warnf("failed to attach tc ebpf on interface %v, %v", iface, err)
+						continue
+					}
+				}
+			}
+		}
+	}
+	return true
 }
 
 func (ic *ipsecController) processNextItem() bool {

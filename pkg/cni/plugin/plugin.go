@@ -128,6 +128,52 @@ func enableXdpAuth(ifname string) error {
 	return nil
 }
 
+func enableTcEgress(args *skel.CmdArgs) error {
+	var (
+		err        error
+		link       netlink.Link
+		tc         *ebpf.Program
+		ifName     string
+		ifPeerName string
+	)
+
+	ifName = args.IfName
+
+	if tc, err = utils.GetProgramByName(constants.TC_EGRESS); err != nil {
+		return err
+	}
+
+	getVeth := func(netns.NetNS) error {
+		if link, err = netlink.LinkByName(ifName); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := netns.WithNetNSPath(string(args.Netns), getVeth); err != nil {
+		log.Error(err)
+		return err
+	}
+
+	if link.Type() != "veth" {
+		return fmt.Errorf("only support veth in container")
+	}
+	if veth, ok := link.(*netlink.Veth); !ok {
+		return fmt.Errorf("only support veth in container")
+	} else {
+		ifPeerName = veth.PeerName
+	}
+	if link, err = netlink.LinkByName(ifPeerName); err != nil {
+		return err
+	}
+
+	if err = utils.AttchTCProgram(link, tc, utils.TC_DIR_EGRESS); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // if cmdadd failed, then we cannot return failed, do nothing and print pre result
 func CmdAdd(args *skel.CmdArgs) error {
 	var err error
@@ -191,6 +237,11 @@ func CmdAdd(args *skel.CmdArgs) error {
 
 		if err := netns.WithNetNSPath(string(args.Netns), enableXDPFunc); err != nil {
 			log.Error(err)
+			return err
+		}
+
+		if err := enableTcEgress(args); err != nil {
+			err = fmt.Errorf("failed to set tc to dev %v, err is %v", args.IfName, err)
 			return err
 		}
 	}
