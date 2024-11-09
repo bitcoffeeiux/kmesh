@@ -165,4 +165,3 @@ func CreateNewStateFromOldByLocalNidIP(spi, oldSpi int8, nicIP []string) error {
 	}
 	return nil
 }
-

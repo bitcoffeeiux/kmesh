@@ -34,6 +34,7 @@ import (
 	"istio.io/istio/pkg/filewatcher"
 
 	"github.com/cilium/ebpf"
+	netns "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/fsnotify/fsnotify"
 	"github.com/vishvananda/netlink"
 	"istio.io/pkg/log"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"kmesh.net/kmesh/pkg/constants"
+	kmesh_netns "kmesh.net/kmesh/pkg/controller/netns"
 	v1alpha1_core "kmesh.net/kmesh/pkg/kube/apis/kmeshnodeinfo/v1alpha1"
 	v1alpha1_clientset "kmesh.net/kmesh/pkg/kube/exnodeinfo/clientset/versioned/typed/kmeshnodeinfo/v1alpha1"
 	informer "kmesh.net/kmesh/pkg/kube/exnodeinfo/informers/externalversions"
@@ -267,6 +269,11 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 }
 
 func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeInfo) error {
+	nodeNsPath, err := kmesh_netns.GetNodeNSpath(ic.myNode)
+	if err != nil {
+		err = fmt.Errorf("failed to get current node ns path")
+		return err
+	}
 	mapfd, err := ebpf.LoadPinnedMap(KmeshNodeInfoMapPath, nil)
 	if err != nil {
 		err = fmt.Errorf("failed to get kmesh node info map fd, %v", err)
@@ -279,19 +286,26 @@ func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir in  tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}d00
 	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir fwd tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}d00
 	 */
-	for _, remoteNicIP := range target.Spec.NicIPs {
-		for _, localNicIP := range ic.kmeshNodeInfo.Spec.NicIPs {
-			for _, localCIDR := range ic.kmeshNodeInfo.Spec.Cirds {
-				newKey := generateIPSecKey(ic.ipsecKey.ipSecKeyBase.AeadKey, remoteNicIP, localNicIP, target.Spec.BootID, ic.kmeshNodeInfo.Spec.BootID)
-				var sum utils.Sum
-				sum.Write([]byte(localNicIP))
-				nodeID := fmt.Sprintf("%x", sum.Sum16())
-				if err := utils.InsertXfrmRule(remoteNicIP, localNicIP, localCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
-					newKey, ic.ipsecKey.ipSecKeyBase.Length, false); err != nil {
-					return err
+	handleInXfrm := func(netns.NetNS) error {
+		for _, remoteNicIP := range target.Spec.NicIPs {
+			for _, localNicIP := range ic.kmeshNodeInfo.Spec.NicIPs {
+				for _, localCIDR := range ic.kmeshNodeInfo.Spec.Cirds {
+					newKey := generateIPSecKey(ic.ipsecKey.ipSecKeyBase.AeadKey, remoteNicIP, localNicIP, target.Spec.BootID, ic.kmeshNodeInfo.Spec.BootID)
+					var sum utils.Sum
+					sum.Write([]byte(localNicIP))
+					nodeID := fmt.Sprintf("%x", sum.Sum16())
+
+					if err := utils.InsertXfrmRule(remoteNicIP, localNicIP, localCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
+						newKey, ic.ipsecKey.ipSecKeyBase.Length, false); err != nil {
+						return err
+					}
 				}
 			}
 		}
+		return nil
+	}
+	if err := netns.WithNetNSPath(nodeNsPath, handleInXfrm); err != nil {
+		return err
 	}
 	/*
 	 * src is local host, dst is remote host
@@ -299,40 +313,47 @@ func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 	 * ip xfrm state  add src {localNicIP} dst {remoteNicIP} proto esp spi 1 mode tunnel reqid 1 {aead-algo} {aead-key} {aead-key-length}
 	 * ip xfrm policy add src 0.0.0.0/0    dst {remoteCIDR}  dir out tmpl src {localNicIP} dst {remoteNicIP} proto esp spi {spi} reqid 1 mode tunnel mark 0x{remoteid}e00
 	 */
-	for _, localNicIP := range ic.kmeshNodeInfo.Spec.NicIPs {
-		for _, remoteNicIP := range target.Spec.NicIPs {
-			for _, remoteCIDR := range target.Spec.Cirds {
-				newKey := generateIPSecKey(ic.ipsecKey.ipSecKeyBase.AeadKey, localNicIP, remoteNicIP, ic.kmeshNodeInfo.Spec.BootID, target.Spec.BootID)
-				var sum utils.Sum
-				sum.Write([]byte(remoteNicIP))
-				nodeID := fmt.Sprintf("%x", sum.Sum16())
-				if err := utils.InsertXfrmRule(localNicIP, remoteNicIP, remoteCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
-					newKey, ic.ipsecKey.ipSecKeyBase.Length, true); err != nil {
-					return err
-				}
-				cidr := strings.Split(remoteCIDR, "/")
-				prefix, _ := strconv.Atoi(cidr[1])
-				kniKey := lpm_key{
-					trie_key: uint32(prefix),
-				}
-				ip, _ := netip.ParseAddr(cidr[0])
-				if ip.Is4() {
-					kniKey.ip[0] = binary.BigEndian.Uint32(ip.AsSlice())
-				} else if ip.Is6() {
-					// TODO
-				}
+	handleOutXfrm := func(netns.NetNS) error {
+		for _, localNicIP := range ic.kmeshNodeInfo.Spec.NicIPs {
+			for _, remoteNicIP := range target.Spec.NicIPs {
+				for _, remoteCIDR := range target.Spec.Cirds {
+					newKey := generateIPSecKey(ic.ipsecKey.ipSecKeyBase.AeadKey, localNicIP, remoteNicIP, ic.kmeshNodeInfo.Spec.BootID, target.Spec.BootID)
+					var sum utils.Sum
+					sum.Write([]byte(remoteNicIP))
+					nodeID := fmt.Sprintf("%x", sum.Sum16())
+					if err := utils.InsertXfrmRule(localNicIP, remoteNicIP, remoteCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,
+						newKey, ic.ipsecKey.ipSecKeyBase.Length, true); err != nil {
+						return err
+					}
+					cidr := strings.Split(remoteCIDR, "/")
+					prefix, _ := strconv.Atoi(cidr[1])
+					kniKey := lpm_key{
+						trie_key: uint32(prefix),
+					}
+					ip, _ := netip.ParseAddr(cidr[0])
+					if ip.Is4() {
+						kniKey.ip[0] = binary.BigEndian.Uint32(ip.AsSlice())
+					} else if ip.Is6() {
+						// TODO
+					}
 
-				kniValue := kmeshNodeInfo{
-					spi:    uint32(ic.ipsecKey.Spi),
-					nodeid: sum.Sum16(),
-				}
+					kniValue := kmeshNodeInfo{
+						spi:    uint32(ic.ipsecKey.Spi),
+						nodeid: sum.Sum16(),
+					}
 
-				if err := mapfd.Update(&kniKey, &kniValue, ebpf.UpdateAny); err != nil {
-					return err
+					if err := mapfd.Update(&kniKey, &kniValue, ebpf.UpdateAny); err != nil {
+						return err
+					}
 				}
 			}
 		}
+		return nil
 	}
+	if err := netns.WithNetNSPath(nodeNsPath, handleOutXfrm); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -436,13 +457,25 @@ func (ic *ipsecController) Run(stop <-chan struct{}) {
 	ic.ipsecKey.StartWatch(ipsecUpdateChan)
 
 	go func() {
+		nodeNsPath, err := kmesh_netns.GetNodeNSpath(ic.myNode)
+		if err != nil {
+			log.Errorf("failed to get nodens path, %v", err)
+			return
+		}
 		for {
 			select {
 			case <-ipsecUpdateChan:
-				if err := utils.CreateNewStateFromOldByLocalNidIP(ic.ipsecKey.Spi, ic.ipsecKey.OldSpi, ic.kmeshNodeInfo.Spec.NicIPs); err != nil {
-					log.Errorf("failed to CreateNewState, %v", err)
+
+				updateXfrm := func(netns.NetNS) error {
+					if err := utils.CreateNewStateFromOldByLocalNidIP(ic.ipsecKey.Spi, ic.ipsecKey.OldSpi, ic.kmeshNodeInfo.Spec.NicIPs); err != nil {
+						log.Errorf("failed to CreateNewState, %v", err)
+					}
+					return nil
+				}
+				if err := netns.WithNetNSPath(nodeNsPath, updateXfrm); err != nil {
 					continue
 				}
+
 				tmpUpdate, err := ic.kniClient.Get(context.TODO(), ic.kmeshNodeInfo.Name, metav1.GetOptions{})
 				if err != nil {
 					log.Errorf("failed to get kmesh node info to k8s: %v", err)
