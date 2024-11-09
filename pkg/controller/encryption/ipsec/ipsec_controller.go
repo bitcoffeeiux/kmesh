@@ -269,9 +269,9 @@ func NewIPsecController(k8sClientSet kubernetes.Interface) (*ipsecController, er
 }
 
 func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeInfo) error {
-	nodeNsPath, err := kmesh_netns.GetNodeNSpath(ic.myNode)
+	nodeNsPath, err := kmesh_netns.GetNodeNSpath()
 	if err != nil {
-		err = fmt.Errorf("failed to get current node ns path")
+		err = fmt.Errorf("failed to get current node ns path, %v", err)
 		return err
 	}
 	mapfd, err := ebpf.LoadPinnedMap(KmeshNodeInfoMapPath, nil)
@@ -457,7 +457,7 @@ func (ic *ipsecController) Run(stop <-chan struct{}) {
 	ic.ipsecKey.StartWatch(ipsecUpdateChan)
 
 	go func() {
-		nodeNsPath, err := kmesh_netns.GetNodeNSpath(ic.myNode)
+		nodeNsPath, err := kmesh_netns.GetNodeNSpath()
 		if err != nil {
 			log.Errorf("failed to get nodens path, %v", err)
 			return
