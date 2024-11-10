@@ -17,9 +17,13 @@
 package plugin
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/containernetworking/cni/pkg/skel"
@@ -130,45 +134,56 @@ func enableXdpAuth(ifname string) error {
 
 func enableTcEgress(args *skel.CmdArgs) error {
 	var (
-		err        error
-		link       netlink.Link
-		tc         *ebpf.Program
-		ifName     string
-		ifPeerName string
+		err     error
+		link    netlink.Link
+		tc      *ebpf.Program
+		ifIndex int
+		output  bytes.Buffer
 	)
-
-	ifName = args.IfName
+	ifIndex = 0
+	ethtoolArgs := []string{"-S", args.IfName}
 
 	if tc, err = utils.GetProgramByName(constants.TC_EGRESS); err != nil {
-		return err
+		return fmt.Errorf("failed to get tc program: %v", err)
 	}
 
-	getVeth := func(netns.NetNS) error {
-		if link, err = netlink.LinkByName(ifName); err != nil {
-			return err
+	getVethPeerLinkNum := func(netns.NetNS) error {
+		if err = utils.ExecuteWithRedirect("ethtool", ethtoolArgs, &output); err != nil {
+			return fmt.Errorf("failed to exec ethtool get ifindex, %v", err)
 		}
 		return nil
 	}
 
-	if err := netns.WithNetNSPath(string(args.Netns), getVeth); err != nil {
+	if err := netns.WithNetNSPath(string(args.Netns), getVethPeerLinkNum); err != nil {
 		log.Error(err)
 		return err
 	}
 
-	if link.Type() != "veth" {
-		return fmt.Errorf("only support veth in container")
+	scanner := bufio.NewScanner(&output)
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		line := strings.Split(strings.Trim(scanner.Text(), " "), ":")
+		if len(line) < 2 {
+			continue
+		}
+		if strings.Compare(line[0], "peer_ifindex") != 0 {
+			continue
+		}
+		if ifIndex, err = strconv.Atoi(strings.Trim(line[1], " ")); err != nil {
+			return fmt.Errorf("failed to convert peer ifindex: \"%v\", %v", line[1], err)
+		}
 	}
-	if veth, ok := link.(*netlink.Veth); !ok {
-		return fmt.Errorf("only support veth in container")
-	} else {
-		ifPeerName = veth.PeerName
+
+	if ifIndex == 0 {
+		return fmt.Errorf("can not found valid if index")
 	}
-	if link, err = netlink.LinkByName(ifPeerName); err != nil {
-		return err
+
+	if link, err = netlink.LinkByIndex(ifIndex); err != nil {
+		return fmt.Errorf("failed ot link valid interface, %v", err)
 	}
 
 	if err = utils.AttchTCProgram(link, tc, utils.TC_DIR_EGRESS); err != nil {
-		return err
+		return fmt.Errorf("failed ot attach tc program, %v", err)
 	}
 
 	return nil
