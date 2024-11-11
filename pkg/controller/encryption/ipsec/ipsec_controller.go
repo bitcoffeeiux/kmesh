@@ -288,7 +288,7 @@ func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 				for _, localCIDR := range ic.kmeshNodeInfo.Spec.Cirds {
 					newKey := generateIPSecKey(ic.ipsecKey.ipSecKeyBase.AeadKey, remoteNicIP, localNicIP, target.Spec.BootID, ic.kmeshNodeInfo.Spec.BootID)
 					var sum utils.Sum
-					sum.Write([]byte(localNicIP))
+					sum.Write([]byte(remoteNicIP))
 					nodeID := fmt.Sprintf("%x", sum.Sum16())
 
 					if err := utils.InsertXfrmRule(remoteNicIP, localNicIP, localCIDR, nodeID, target.Spec.Spi, ic.ipsecKey.ipSecKeyBase.AeadKeyName,

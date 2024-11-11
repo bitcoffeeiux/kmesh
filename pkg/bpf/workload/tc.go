@@ -97,13 +97,12 @@ func (tc *BpfTCWorkload) loadKmeshTCObjects() (*ebpf.CollectionSpec, *ebpf.Colle
 		return nil, nil, fmt.Errorf("error: loadKmeshTCObjects() spec is nil")
 	}
 
-	utils.SetInnerMap(specTcMarkDecrypt)
-	utils.SetInnerMap(specTcMarkEncrypt)
 	utils.SetMapPinType(specTcMarkDecrypt, ebpf.PinByName)
 	if err := specTcMarkDecrypt.LoadAndAssign(&tc.KmeshTcMarkDecryptObjects, &optsTcMarkDecrypt); err != nil {
 		return nil, nil, err
 	}
 
+	utils.SetMapPinType(specTcMarkEncrypt, ebpf.PinByName)
 	if err := specTcMarkEncrypt.LoadAndAssign(&tc.KmeshTcMarkEncryptObjects, &optsTcMarkEncrypt); err != nil {
 		return nil, nil, err
 	}

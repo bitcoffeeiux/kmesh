@@ -20,7 +20,7 @@ int tc_mark_encrypt(struct __sk_buff *ctx)
     if (!nodeinfo) {
         return TC_ACT_OK;
     }
-    ctx->mark = ((nodeinfo->nodeid) << 12) + ((nodeinfo->spi) << 3) + 0xe00;
+    ctx->mark = ((nodeinfo->nodeid) << 16) + ((nodeinfo->spi) << 12) + 0xe00;
     return TC_ACT_OK;
 }
 
