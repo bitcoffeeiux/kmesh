@@ -67,32 +67,6 @@ static inline int sock_traffic_control(struct kmesh_context *kmesh_ctx)
     return 0;
 }
 
-void security_mark(struct kmesh_context *kmesh_ctx, bool isIPv6)
-{
-    struct nodeinfo *nodeinfo;
-    struct nodeinfo *storage;
-    struct lpm_key key = {0};
-    if (isIPv6) {
-        key.trie_key.prefixlen = 128;
-        IP6_COPY(key.ip.ip6, kmesh_ctx->dnat_ip.ip6);
-    } else {
-        key.trie_key.prefixlen = 32;
-        key.ip.ip4 = kmesh_ctx->dnat_ip.ip4;
-    }
-    nodeinfo = bpf_map_lookup_elem(&map_of_nodeinfo, &key);
-    if (!nodeinfo) {
-        return;
-    }
-    storage = bpf_sk_storage_get(&map_of_sk_storage, kmesh_ctx->ctx->sk, 0, BPF_SK_STORAGE_GET_F_CREATE);
-    if (!storage) {
-        BPF_LOG(ERR, KMESH, "failed to alloc storage!");
-        return;
-    }
-    storage->spi = nodeinfo->spi;
-    storage->nodeid = nodeinfo->nodeid;
-    return;
-}
-
 SEC("cgroup/connect4")
 int cgroup_connect4_prog(struct bpf_sock_addr *ctx)
 {
@@ -118,8 +92,6 @@ int cgroup_connect4_prog(struct bpf_sock_addr *ctx)
         // if tail call failed will run this code
         BPF_LOG(ERR, KMESH, "workload tail call failed, err is %d\n", ret);
     }
-
-    security_mark(&kmesh_ctx, false);
 
     observe_on_pre_connect(ctx->sk);
     return CGROUP_SOCK_OK;
@@ -156,8 +128,6 @@ int cgroup_connect6_prog(struct bpf_sock_addr *ctx)
         // if tail call failed will run this code
         BPF_LOG(ERR, KMESH, "workload tail call6 failed, err is %d\n", ret);
     }
-
-    security_mark(&kmesh_ctx, true);
 
     observe_on_pre_connect(ctx->sk);
     return CGROUP_SOCK_OK;

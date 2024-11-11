@@ -1,25 +1,42 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Kmesh */
 
-#include <linux/bpf.h>
-#include <linux/pkt_cls.h>
-#include <bpf/bpf_helpers.h>
-
+#include "tc.h"
 #include "bpf_log.h"
 #include "ipsec_map.h"
+
+struct nodeinfo * getNodeInfo(struct tc_info *info)
+{
+    struct lpm_key key = {0};
+    struct bpf_sock_tuple tuple_key = {0};
+    if (is_ipv4(info)) {
+        key.trie_key.prefixlen = 32;
+        key.ip.ip4 = info->iph->daddr;
+    } else if (is_ipv6(info)){
+        key.trie_key.prefixlen = 128;
+        IP6_COPY(key.ip.ip6, info->ip6h->daddr.s6_addr32);
+    } else {
+        return NULL;
+    }
+    return bpf_map_lookup_elem(&map_of_nodeinfo, &key);
+}
 
 SEC("tc_egress")
 int tc_mark_encrypt(struct __sk_buff *ctx)
 {
     struct nodeinfo *nodeinfo;
 
-    if (!ctx->sk)  {
+    struct tc_info info = {0};
+
+    if (parser_tc_info(ctx, &info)) {
         return TC_ACT_OK;
     }
-    nodeinfo = bpf_sk_storage_get(&map_of_sk_storage, ctx->sk, 0, 0);
-    if (nodeinfo) {
-        ctx->mark = ((nodeinfo->nodeid) << 12) + ((nodeinfo->spi) << 3) + 0xe00;
+
+    nodeinfo = getNodeInfo(&info);
+    if (!nodeinfo) {
+        return TC_ACT_OK;
     }
+    ctx->mark = ((nodeinfo->nodeid) << 12) + ((nodeinfo->spi) << 3) + 0xe00;
     return TC_ACT_OK;
 }
 

@@ -122,7 +122,6 @@ func (is *ipSecKey) loadIPSecKeyFromIO(file *os.File) error {
 	scanner := bufio.NewScanner(file)
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
-
 		keyLine := strings.Split(scanner.Text(), " ")
 		if len(keyLine) != 4 {
 			return fmt.Errorf("ipsec config file error, invalid format, need aead algo")
@@ -329,7 +328,7 @@ func (ic *ipsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 					}
 					ip, _ := netip.ParseAddr(cidr[0])
 					if ip.Is4() {
-						kniKey.ip[0] = binary.BigEndian.Uint32(ip.AsSlice())
+						kniKey.ip[0] = binary.LittleEndian.Uint32(ip.AsSlice())
 					} else if ip.Is6() {
 						// TODO
 					}
