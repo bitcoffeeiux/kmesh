@@ -75,6 +75,8 @@ struct nodeinfo * getNodeInfo(struct __sk_buff *ctx, struct tc_info *info, __u32
         key.trie_key.prefixlen = 32;
         key.ip.ip4 = ip4;
     } else if (is_ipv6(info)){
+        // original data boundary access will be lost.
+        // The boundary needs to be determined again.
         if ((void *)(info->ip6h + 1) > end) {
             return NULL;
         }

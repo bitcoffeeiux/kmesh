@@ -535,7 +535,7 @@ func (ic *ipsecController) updateKmeshNodeInfo(err error) bool {
 }
 
 func (ic *ipsecController) attachTCforInternalNic() bool {
-	tc, err := utils.GetProgramByName(constants.TC_INGRESS)
+	tc, err := utils.GetProgramByName(constants.TC_MARK_DECRYPT)
 	if err != nil {
 		log.Errorf("failed to get tc ebpf program in ipsec controller, %v", err)
 		return false

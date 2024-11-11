@@ -31,10 +31,10 @@ import (
 )
 
 type BpfTCWorkload struct {
-	InfoTcIngress BpfInfo
-	InfoTcEgress  BpfInfo
-	bpf2go.KmeshTcIngressObjects
-	bpf2go.KmeshTcEgressObjects
+	InfoTcMarkDecrypt BpfInfo
+	InfoTcMarkEncrypt BpfInfo
+	bpf2go.KmeshTcMarkDecryptObjects
+	bpf2go.KmeshTcMarkEncryptObjects
 }
 
 func (tc *BpfTCWorkload) newBpf(info *BpfInfo, cfg *options.BpfConfig) error {
@@ -58,10 +58,10 @@ func (tc *BpfTCWorkload) newBpf(info *BpfInfo, cfg *options.BpfConfig) error {
 }
 
 func (tc *BpfTCWorkload) NewBpf(cfg *options.BpfConfig) error {
-	if err := tc.newBpf(&tc.InfoTcIngress, cfg); err != nil {
+	if err := tc.newBpf(&tc.InfoTcMarkDecrypt, cfg); err != nil {
 		return err
 	}
-	if err := tc.newBpf(&tc.InfoTcEgress, cfg); err != nil {
+	if err := tc.newBpf(&tc.InfoTcMarkEncrypt, cfg); err != nil {
 		return err
 	}
 
@@ -70,96 +70,96 @@ func (tc *BpfTCWorkload) NewBpf(cfg *options.BpfConfig) error {
 
 func (tc *BpfTCWorkload) loadKmeshTCObjects() (*ebpf.CollectionSpec, *ebpf.CollectionSpec, error) {
 	var (
-		errTcIngress  error
-		errTcEgress   error
-		specTcIngress *ebpf.CollectionSpec
-		optsTcIngress ebpf.CollectionOptions
-		specTcEgress  *ebpf.CollectionSpec
-		optsTcEgress  ebpf.CollectionOptions
+		errTcMarkDecrypt  error
+		errTcMarkEncrypt  error
+		specTcMarkDecrypt *ebpf.CollectionSpec
+		optsTcMarkDecrypt ebpf.CollectionOptions
+		specTcMarkEncrypt *ebpf.CollectionSpec
+		optsTcMarkEncrypt ebpf.CollectionOptions
 	)
 
-	optsTcIngress.Maps.PinPath = tc.InfoTcIngress.MapPath
-	optsTcEgress.Maps.PinPath = tc.InfoTcEgress.MapPath
+	optsTcMarkDecrypt.Maps.PinPath = tc.InfoTcMarkDecrypt.MapPath
+	optsTcMarkEncrypt.Maps.PinPath = tc.InfoTcMarkEncrypt.MapPath
 	if helper.KernelVersionLowerThan5_13() {
-		specTcIngress, errTcIngress = bpf2go.LoadKmeshTcIngressCompat()
-		specTcEgress, errTcEgress = bpf2go.LoadKmeshTcEgressCompat()
+		specTcMarkDecrypt, errTcMarkDecrypt = bpf2go.LoadKmeshTcMarkDecryptCompat()
+		specTcMarkEncrypt, errTcMarkEncrypt = bpf2go.LoadKmeshTcMarkEncryptCompat()
 	} else {
-		specTcIngress, errTcIngress = bpf2go.LoadKmeshTcIngress()
-		specTcEgress, errTcEgress = bpf2go.LoadKmeshTcEgress()
+		specTcMarkDecrypt, errTcMarkDecrypt = bpf2go.LoadKmeshTcMarkDecrypt()
+		specTcMarkEncrypt, errTcMarkEncrypt = bpf2go.LoadKmeshTcMarkEncrypt()
 	}
-	if errTcIngress != nil {
-		return nil, nil, errTcIngress
+	if errTcMarkDecrypt != nil {
+		return nil, nil, errTcMarkDecrypt
 	}
-	if errTcEgress != nil {
-		return nil, nil, errTcEgress
+	if errTcMarkEncrypt != nil {
+		return nil, nil, errTcMarkEncrypt
 	}
-	if specTcIngress == nil || specTcEgress == nil {
+	if specTcMarkDecrypt == nil || specTcMarkEncrypt == nil {
 		return nil, nil, fmt.Errorf("error: loadKmeshTCObjects() spec is nil")
 	}
 
-	utils.SetInnerMap(specTcIngress)
-	utils.SetInnerMap(specTcEgress)
-	utils.SetMapPinType(specTcIngress, ebpf.PinByName)
-	if err := specTcIngress.LoadAndAssign(&tc.KmeshTcIngressObjects, &optsTcIngress); err != nil {
+	utils.SetInnerMap(specTcMarkDecrypt)
+	utils.SetInnerMap(specTcMarkEncrypt)
+	utils.SetMapPinType(specTcMarkDecrypt, ebpf.PinByName)
+	if err := specTcMarkDecrypt.LoadAndAssign(&tc.KmeshTcMarkDecryptObjects, &optsTcMarkDecrypt); err != nil {
 		return nil, nil, err
 	}
 
-	if err := specTcEgress.LoadAndAssign(&tc.KmeshTcEgressObjects, &optsTcEgress); err != nil {
+	if err := specTcMarkEncrypt.LoadAndAssign(&tc.KmeshTcMarkEncryptObjects, &optsTcMarkEncrypt); err != nil {
 		return nil, nil, err
 	}
 
-	return specTcIngress, specTcEgress, nil
+	return specTcMarkDecrypt, specTcMarkEncrypt, nil
 }
 
 func (tc *BpfTCWorkload) LoadTC() error {
-	specIngress, specEgress, err := tc.loadKmeshTCObjects()
+	specMarkDecrypt, specMarkEncrypt, err := tc.loadKmeshTCObjects()
 	if err != nil {
 		return err
 	}
 
-	prog := specIngress.Programs[constants.TC_INGRESS]
-	tc.InfoTcIngress.Type = prog.Type
-	tc.InfoTcIngress.AttachType = prog.AttachType
+	prog := specMarkDecrypt.Programs[constants.TC_MARK_DECRYPT]
+	tc.InfoTcMarkDecrypt.Type = prog.Type
+	tc.InfoTcMarkDecrypt.AttachType = prog.AttachType
 
-	prog = specEgress.Programs[constants.TC_EGRESS]
-	tc.InfoTcEgress.Type = prog.Type
-	tc.InfoTcEgress.AttachType = prog.AttachType
+	prog = specMarkEncrypt.Programs[constants.TC_MARK_ENCRYPT]
+	tc.InfoTcMarkEncrypt.Type = prog.Type
+	tc.InfoTcMarkEncrypt.AttachType = prog.AttachType
 
 	return nil
 }
 
 func (xa *BpfTCWorkload) Close() error {
-	if err := xa.KmeshTcIngressObjects.Close(); err != nil {
+	if err := xa.KmeshTcMarkDecryptObjects.Close(); err != nil {
 		return err
 	}
-	progVal := reflect.ValueOf(xa.KmeshTcIngressObjects.KmeshTcIngressPrograms)
+	progVal := reflect.ValueOf(xa.KmeshTcMarkDecryptObjects.KmeshTcMarkDecryptPrograms)
 	if err := utils.UnpinPrograms(&progVal); err != nil {
 		return err
 	}
 
-	mapVal := reflect.ValueOf(xa.KmeshTcIngressObjects.KmeshTcIngressMaps)
+	mapVal := reflect.ValueOf(xa.KmeshTcMarkDecryptObjects.KmeshTcMarkDecryptMaps)
 	if err := utils.UnpinMaps(&mapVal); err != nil {
 		return err
 	}
 
-	if err := os.RemoveAll(xa.InfoTcIngress.BpfFsPath); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(xa.InfoTcMarkDecrypt.BpfFsPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	if err := xa.KmeshTcEgressObjects.Close(); err != nil {
+	if err := xa.KmeshTcMarkEncryptObjects.Close(); err != nil {
 		return err
 	}
-	progVal = reflect.ValueOf(xa.KmeshTcEgressObjects.KmeshTcEgressPrograms)
+	progVal = reflect.ValueOf(xa.KmeshTcMarkEncryptObjects.KmeshTcMarkEncryptPrograms)
 	if err := utils.UnpinPrograms(&progVal); err != nil {
 		return err
 	}
 
-	mapVal = reflect.ValueOf(xa.KmeshTcEgressObjects.KmeshTcEgressMaps)
+	mapVal = reflect.ValueOf(xa.KmeshTcMarkEncryptObjects.KmeshTcMarkEncryptMaps)
 	if err := utils.UnpinMaps(&mapVal); err != nil {
 		return err
 	}
 
-	if err := os.RemoveAll(xa.InfoTcEgress.BpfFsPath); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(xa.InfoTcMarkEncrypt.BpfFsPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 

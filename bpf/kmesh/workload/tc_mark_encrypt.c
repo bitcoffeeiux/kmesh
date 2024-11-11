@@ -5,7 +5,7 @@
 #include "bpf_log.h"
 #include "ipsec_map.h"
 
-SEC("tc_egress")
+SEC("tc_ingress")
 int tc_mark_encrypt(struct __sk_buff *ctx)
 {
     struct nodeinfo *nodeinfo;

@@ -143,7 +143,7 @@ func enableTcEgress(args *skel.CmdArgs) error {
 	ifIndex = 0
 	ethtoolArgs := []string{"-S", args.IfName}
 
-	if tc, err = utils.GetProgramByName(constants.TC_EGRESS); err != nil {
+	if tc, err = utils.GetProgramByName(constants.TC_MARK_ENCRYPT); err != nil {
 		return fmt.Errorf("failed to get tc program: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func enableTcEgress(args *skel.CmdArgs) error {
 		return fmt.Errorf("failed ot link valid interface, %v", err)
 	}
 
-	if err = utils.AttchTCProgram(link, tc, utils.TC_DIR_EGRESS); err != nil {
+	if err = utils.AttchTCProgram(link, tc, utils.TC_DIR_INGRESS); err != nil {
 		return fmt.Errorf("failed ot attach tc program, %v", err)
 	}
 
