@@ -43,6 +43,7 @@ type Controller struct {
 	bpfAdsObj           *bpfads.BpfAds
 	bpfWorkloadObj      *bpfwl.BpfWorkload
 	client              *XdsClient
+	ipsecController     *ipsec.IpsecController
 	enableByPass        bool
 	enableSecretManager bool
 	bpfFsPath           string
@@ -107,11 +108,11 @@ func (c *Controller) Start(stopCh <-chan struct{}) error {
 	}
 
 	if c.enableIpsec {
-		c, err := ipsec.NewIPsecController(clientset)
+		c.ipsecController, err = ipsec.NewIPsecController(clientset)
 		if err != nil {
 			return fmt.Errorf("failed to new IPSec controller, %v", err)
 		}
-		go c.Run(stopCh)
+		go c.ipsecController.Run(stopCh)
 		log.Info("start ipsec controller successfully")
 	}
 
@@ -145,6 +146,9 @@ func (c *Controller) Stop() {
 	cancel()
 	if c.client != nil {
 		c.client.Close()
+	}
+	if c.enableIpsec {
+		c.ipsecController.Stop()
 	}
 }
 
