@@ -24,7 +24,7 @@ int tc_mark_decrypt(struct __sk_buff *ctx)
         return TC_ACT_OK;
     }
     nodeid = nodeinfo->nodeid;
-    ctx->mark = (nodeid << 12) + 0xd00;
+    ctx->mark = (nodeid << 16) + 0x00d0;
     return TC_ACT_OK;
 }
 

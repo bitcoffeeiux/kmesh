@@ -297,7 +297,7 @@ func (is *IpSecHandler) createPolicyRule(srcCIDR, dstCIDR *net.IPNet, src, dst n
 	}
 
 	if out {
-		mark, err := strconv.ParseInt(nodeID+strconv.Itoa(int(is.Spi))+"e00", 16, 64)
+		mark, err := strconv.ParseInt(nodeID+"0"+strconv.Itoa(int(is.Spi))+"00e0", 16, 64)
 		if err != nil {
 			return fmt.Errorf("failed to convert mark in inserting xfrm out rule, %v", err)
 		}
@@ -310,7 +310,7 @@ func (is *IpSecHandler) createPolicyRule(srcCIDR, dstCIDR *net.IPNet, src, dst n
 			return err
 		}
 	} else {
-		mark, err := strconv.ParseInt(nodeID+"d00", 16, 64)
+		mark, err := strconv.ParseInt(nodeID+"00d0", 16, 64)
 		if err != nil {
 			return fmt.Errorf("failed to convert mark in inserting xfrm in rule, %v", err)
 		}

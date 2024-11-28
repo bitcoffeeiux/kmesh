@@ -135,8 +135,8 @@ func (ic *IpsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 	 * src is remote host, dst is local host
 	 * create xfrm rule like:
 	 * ip xfrm state  add src {remoteNicIP} dst {localNicIP} proto esp {localSpi} mode tunnel reqid 1 {aead-algo} {aead-key} {aead-key-length}
-	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir in  tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}d00
-	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir fwd tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}d00
+	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir in  tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}00d0
+	 * ip xfrm policy add src 0.0.0.0/0     dst {localCIDR}  dir fwd tmpl src {remoteNicIP} dst {localNicIP} proto esp reqid 1 mode tunnel mark 0x{remoteid}00d0
 	 * remoteid = sum(remoteNicIP)
 	 */
 	handleInXfrm := func(netns.NetNS) error {
@@ -159,7 +159,7 @@ func (ic *IpsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 	 * src is local host, dst is remote host
 	 * create xfrm rule like:
 	 * ip xfrm state  add src {localNicIP} dst {remoteNicIP} proto esp spi 1 mode tunnel reqid 1 {aead-algo} {aead-key} {aead-key-length}
-	 * ip xfrm policy add src 0.0.0.0/0    dst {remoteCIDR}  dir out tmpl src {localNicIP} dst {remoteNicIP} proto esp spi {spi} reqid 1 mode tunnel mark 0x{remoteid}e00
+	 * ip xfrm policy add src 0.0.0.0/0    dst {remoteCIDR}  dir out tmpl src {localNicIP} dst {remoteNicIP} proto esp spi {spi} reqid 1 mode tunnel mark 0x{remoteid}0{spi}e0
 	 */
 	handleOutXfrm := func(netns.NetNS) error {
 		for _, localNicIP := range ic.kmeshNodeInfo.Spec.NicIPs {
@@ -172,9 +172,6 @@ func (ic *IpsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 					if err := ic.updateKNIMapCIDR(remoteCIDR, nodeid, mapfd); err != nil {
 						return err
 					}
-					if err := ic.updateKNIMapRemoteNIC(remoteNicIP, nodeid, mapfd); err != nil {
-						return err
-					}
 				}
 			}
 		}
@@ -184,30 +181,6 @@ func (ic *IpsecController) handleOtherNodeInfo(target *v1alpha1_core.KmeshNodeIn
 		return err
 	}
 
-	return nil
-}
-
-func (ic *IpsecController) updateKNIMapRemoteNIC(remoteNicIP string, nodeid uint16, mapfd *ebpf.Map) error {
-	kniKey := lpm_key{}
-	ip, _ := netip.ParseAddr(remoteNicIP)
-	if ip.Is4() {
-		kniKey.trie_key = 32
-		kniKey.ip[0] = binary.LittleEndian.Uint32(ip.AsSlice())
-	} else if ip.Is6() {
-		kniKey.trie_key = 128
-		tmpByte := ip.As16()
-		kniKey.ip[0] = binary.LittleEndian.Uint32(tmpByte[:4])
-		kniKey.ip[1] = binary.LittleEndian.Uint32(tmpByte[4:8])
-		kniKey.ip[2] = binary.LittleEndian.Uint32(tmpByte[8:12])
-		kniKey.ip[3] = binary.LittleEndian.Uint32(tmpByte[12:])
-	}
-	kniValue := kmeshNodeInfoMapElem{
-		spi:    uint32(ic.ipsecHandler.Spi),
-		nodeid: nodeid,
-	}
-	if err := mapfd.Update(&kniKey, &kniValue, ebpf.UpdateAny); err != nil {
-		return err
-	}
 	return nil
 }
 
