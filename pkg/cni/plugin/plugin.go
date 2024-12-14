@@ -183,7 +183,7 @@ func enableTcEgress(args *skel.CmdArgs) error {
 		return fmt.Errorf("failed ot link valid interface, %v", err)
 	}
 
-	if err = utils.AttchTCProgram(link, tc, utils.TC_DIR_INGRESS); err != nil {
+	if err = utils.AttchTCProgram(link, tc); err != nil {
 		return fmt.Errorf("failed ot attach tc program, %v", err)
 	}
 
