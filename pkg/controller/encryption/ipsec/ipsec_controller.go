@@ -267,8 +267,9 @@ func (ic *IpsecController) handleKNIDeleteFunc(obj interface{}) {
 		log.Errorf("expected *v1alpha1_core.KmeshNodeInfo but got %T in handle delete func", obj)
 		return
 	}
-	ic.queue.AddRateLimited(QueueItem{name: kni.Spec.Name,
-		action: ActionDelete})
+	for _, targetIP := range kni.Spec.NicIPs {
+		ic.ipsecHandler.Clean(targetIP)
+	}
 }
 
 func (ic *IpsecController) Run(stop <-chan struct{}) {
@@ -326,6 +327,8 @@ func (ic *IpsecController) Stop() {
 	ic.ipsecHandler.StopWatch()
 	if restart.GetStartType() == restart.Normal {
 		ic.detachTCforInternalNic()
+		ic.kniClient.Delete(context.TODO(), ic.kmeshNodeInfo.Name, metav1.DeleteOptions{})
+		ic.CleanAllIPsec()
 	}
 }
 
@@ -478,6 +481,12 @@ func (ic *IpsecController) detachTCforInternalNic() {
 	}
 
 	return
+}
+
+func (ic *IpsecController) CleanAllIPsec() {
+	if err := ic.ipsecHandler.CleanAll(); err != nil {
+		log.Errorf("failed to clean ipsec rule: %v", err)
+	}
 }
 
 func (ic *IpsecController) processNextItem() bool {
